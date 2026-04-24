@@ -7,32 +7,69 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 @Entity
 @Table(name = "stocks")
-// This ensures the JSON output follows your exact requested order
-@JsonPropertyOrder({ "currentPrice", "volume", "atr", "adx", "roc", "timestamp" })
+@JsonPropertyOrder({
+    "symbol", "instrumentKey",
+    "currentPrice", "change", "changePercent",
+    "adx", "atr", "roc",
+    "highPrice", "openPrice", "closePrice",
+    "lastPrice", "previousClosePrice",
+    "volume", "timestamp", "direction"
+})
 public class StockData {
 
     @Id
     private String instrumentKey;
     private String symbol;
 
-    // --- Requested Order Fields ---
+    // 1) Current Price
     private double currentPrice;
-    private long volume;
-    private double atr;
+
+    // 2) Change Price
+    private double change;
+
+    // 3) Change Percentage
+    private double changePercent;
+
+    // 4) Technical Indicators
     private double adx;
+    private double atr;
     private double roc;
+
+    // 5) High Price
+    private double highPrice;
+
+    // 6) Open Price
+    private double openPrice;
+
+    // 7) Close Price (today's close / last traded)
+    private double closePrice;
+
+    // 8) Last Price (last traded price)
+    private double lastPrice;
+
+    // 9) Previous Close Price
+    private double previousClosePrice;
+
+    // 10) Volume
+    private long volume;
+
+    // 11) Timestamp
     private String timestamp;
 
-    // --- Additional Price Data ---
-    private double highPrice;
+    // 12) Direction (UP / DOWN / NEUTRAL)
+    private String direction;
+
+    // Additional fields
     private double lowPrice;
-    private double openPrice;
-    private double closePrice;
-    private double change;
-    private double changePercent;
+    private double averagePrice;
+    private double upperCircuitLimit;
+    private double lowerCircuitLimit;
+    private long totalBuyQuantity;
+    private long totalSellQuantity;
+
+    // Legacy field kept for backward compatibility
     private String status;
 
-    // Standard no-args constructor for Hibernate
     public StockData() {
     }
 
@@ -47,26 +84,23 @@ public class StockData {
     public double getCurrentPrice() { return currentPrice; }
     public void setCurrentPrice(double currentPrice) { this.currentPrice = currentPrice; }
 
-    public long getVolume() { return volume; }
-    public void setVolume(long volume) { this.volume = volume; }
+    public double getChange() { return change; }
+    public void setChange(double change) { this.change = change; }
 
-    public double getAtr() { return atr; }
-    public void setAtr(double atr) { this.atr = atr; }
+    public double getChangePercent() { return changePercent; }
+    public void setChangePercent(double changePercent) { this.changePercent = changePercent; }
 
     public double getAdx() { return adx; }
     public void setAdx(double adx) { this.adx = adx; }
 
+    public double getAtr() { return atr; }
+    public void setAtr(double atr) { this.atr = atr; }
+
     public double getRoc() { return roc; }
     public void setRoc(double roc) { this.roc = roc; }
 
-    public String getTimestamp() { return timestamp; }
-    public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
-
     public double getHighPrice() { return highPrice; }
     public void setHighPrice(double highPrice) { this.highPrice = highPrice; }
-
-    public double getLowPrice() { return lowPrice; }
-    public void setLowPrice(double lowPrice) { this.lowPrice = lowPrice; }
 
     public double getOpenPrice() { return openPrice; }
     public void setOpenPrice(double openPrice) { this.openPrice = openPrice; }
@@ -74,11 +108,38 @@ public class StockData {
     public double getClosePrice() { return closePrice; }
     public void setClosePrice(double closePrice) { this.closePrice = closePrice; }
 
-    public double getChange() { return change; }
-    public void setChange(double change) { this.change = change; }
+    public double getLastPrice() { return lastPrice; }
+    public void setLastPrice(double lastPrice) { this.lastPrice = lastPrice; }
 
-    public double getChangePercent() { return changePercent; }
-    public void setChangePercent(double changePercent) { this.changePercent = changePercent; }
+    public double getPreviousClosePrice() { return previousClosePrice; }
+    public void setPreviousClosePrice(double previousClosePrice) { this.previousClosePrice = previousClosePrice; }
+
+    public long getVolume() { return volume; }
+    public void setVolume(long volume) { this.volume = volume; }
+
+    public String getTimestamp() { return timestamp; }
+    public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+
+    public String getDirection() { return direction; }
+    public void setDirection(String direction) { this.direction = direction; }
+
+    public double getLowPrice() { return lowPrice; }
+    public void setLowPrice(double lowPrice) { this.lowPrice = lowPrice; }
+
+    public double getAveragePrice() { return averagePrice; }
+    public void setAveragePrice(double averagePrice) { this.averagePrice = averagePrice; }
+
+    public double getUpperCircuitLimit() { return upperCircuitLimit; }
+    public void setUpperCircuitLimit(double upperCircuitLimit) { this.upperCircuitLimit = upperCircuitLimit; }
+
+    public double getLowerCircuitLimit() { return lowerCircuitLimit; }
+    public void setLowerCircuitLimit(double lowerCircuitLimit) { this.lowerCircuitLimit = lowerCircuitLimit; }
+
+    public long getTotalBuyQuantity() { return totalBuyQuantity; }
+    public void setTotalBuyQuantity(long totalBuyQuantity) { this.totalBuyQuantity = totalBuyQuantity; }
+
+    public long getTotalSellQuantity() { return totalSellQuantity; }
+    public void setTotalSellQuantity(long totalSellQuantity) { this.totalSellQuantity = totalSellQuantity; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
@@ -86,7 +147,9 @@ public class StockData {
     @Override
     public String toString() {
         return "StockData [Symbol=" + symbol + ", Price=" + currentPrice +
-                ", Volume=" + volume + ", ATR=" + atr + ", ADX=" + adx +
-                ", ROC=" + roc + "%, Time=" + timestamp + "]";
+                ", Change=" + change + ", Change%=" + changePercent +
+                ", ADX=" + adx + ", ATR=" + atr + ", ROC=" + roc +
+                "%, Volume=" + volume + ", Direction=" + direction +
+                ", Time=" + timestamp + "]";
     }
 }

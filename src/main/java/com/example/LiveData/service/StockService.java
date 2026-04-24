@@ -34,10 +34,15 @@ public class StockService {
     @Autowired
     private StockWebSocketHandler webSocketHandler;
 
+    @Autowired
+    private TechnicalIndicatorService indicatorService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Cache for quick UI lookups and WebSocket broadcasts
     private final ConcurrentHashMap<String, StockData> stockCache = new ConcurrentHashMap<>();
+
+    // Track previous prices to determine UP/DOWN direction
+    private final ConcurrentHashMap<String, Double> previousPrices = new ConcurrentHashMap<>();
 
     private static final String UPSTOX_QUOTE_URL = "https://api.upstox.com/v2/market-quote/quotes?symbol=";
     private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss");
@@ -51,20 +56,17 @@ public class StockService {
             List<StockData> stocks = fetchAllChunks();
 
             if (!stocks.isEmpty()) {
-                // 1. Persist to PostgreSQL
                 stockRepository.saveAll(stocks);
-
-                // 2. Update Local Cache
                 stocks.forEach(s -> stockCache.put(s.getInstrumentKey(), s));
 
-                // 3. Broadcast to Web Clients
                 String json = objectMapper.writeValueAsString(new ArrayList<>(stockCache.values()));
                 webSocketHandler.broadcastStockData(json);
 
-                System.out.println("✅ Sync Success: " + stocks.size() + " stocks updated at " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+                System.out.println("[SYNC] " + stocks.size() + " stocks updated at "
+                        + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
             }
         } catch (Exception e) {
-            System.err.println("❌ Service Error: " + e.getMessage());
+            System.err.println("[ERROR] Service: " + e.getMessage());
         }
     }
 
@@ -77,7 +79,7 @@ public class StockService {
                 String keys = String.join(",", chunk);
                 all.addAll(fetchChunk(keys));
             } catch (Exception e) {
-                System.err.println("⚠️ Chunk Error: " + e.getMessage());
+                System.err.println("[WARN] Chunk Error: " + e.getMessage());
             }
         }
         return all;
@@ -94,7 +96,7 @@ public class StockService {
                     url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
             return parseResponse(response.getBody());
         } catch (HttpClientErrorException.Unauthorized e) {
-            System.err.println("🔑 Token Expired: Update upstox.access.token in properties.");
+            System.err.println("[AUTH] Token Expired: Update upstox.access.token in properties.");
             return Collections.emptyList();
         }
     }
@@ -109,49 +111,114 @@ public class StockService {
             Map.Entry<String, JsonNode> entry = fields.next();
             JsonNode node = entry.getValue();
 
-            // Mapping from API
+            // ---- Extract all fields from Upstox API ----
             double ltp   = node.path("last_price").asDouble();
             double open  = node.path("ohlc").path("open").asDouble();
             double high  = node.path("ohlc").path("high").asDouble();
             double low   = node.path("ohlc").path("low").asDouble();
+            long   volume = node.path("volume").asLong();
+            String symbol = node.path("symbol").asText();
+            String apiTimestamp = node.path("timestamp").asText(now);
 
-            // ADDED: Use net_change from API to calculate true Previous Close
+            // Use net_change from API to derive previous close
             double netChangeApi = node.path("net_change").asDouble();
-            double close = (netChangeApi != 0) ? (ltp - netChangeApi) : node.path("ohlc").path("close").asDouble();
+            double previousClose = (netChangeApi != 0) ? (ltp - netChangeApi) : node.path("ohlc").path("close").asDouble();
+            if (previousClose == 0) previousClose = ltp;
 
-            // Final fallback if close is still 0
-            if (close == 0) {
-                close = ltp;
+            // Close price from OHLC (this is previous day close in Upstox full quotes)
+            double ohlcClose = node.path("ohlc").path("close").asDouble();
+
+            // Additional fields from full market quote
+            double avgPrice = node.path("average_price").asDouble();
+            double upperCircuit = node.path("upper_circuit_limit").asDouble();
+            double lowerCircuit = node.path("lower_circuit_limit").asDouble();
+            long totalBuy = node.path("total_buy_quantity").asLong();
+            long totalSell = node.path("total_sell_quantity").asLong();
+
+            // ---- Calculate change & percentage ----
+            double netChange = netChangeApi;
+            double pctChange = (previousClose != 0) ? (netChange / previousClose) * 100 : 0;
+
+            // ---- Direction (UP / DOWN) based on price movement ----
+            String instrumentKey = entry.getKey();
+            Double prevPrice = previousPrices.get(instrumentKey);
+            String direction;
+            if (prevPrice != null) {
+                if (ltp > prevPrice) direction = "UP";
+                else if (ltp < prevPrice) direction = "DOWN";
+                else direction = netChange >= 0 ? "UP" : "DOWN";
+            } else {
+                direction = netChange >= 0 ? "UP" : "DOWN";
+            }
+            previousPrices.put(instrumentKey, ltp);
+
+            // ---- Store candle for indicator calculations ----
+            indicatorService.storeCandle(instrumentKey, open, high, low, ltp, volume);
+
+            // ---- Calculate technical indicators ----
+            double atr = indicatorService.calculateATR(instrumentKey);
+            double adx = indicatorService.calculateADX(instrumentKey);
+            double roc = indicatorService.calculateROC(instrumentKey);
+
+            // Fallback for ATR/ROC if not enough history
+            if (atr == 0) {
+                atr = indicatorService.calculateSingleCandleATR(high, low, previousClose);
+            }
+            if (roc == 0) {
+                roc = indicatorService.calculateIntradayROC(open, ltp);
             }
 
-            long volume  = node.path("volume").asLong();
-
-            // Calculations
-            double rocValue = (open != 0) ? ((ltp - open) / open) * 100 : 0;
-            double tr = Math.max(high - low, Math.max(Math.abs(high - close), Math.abs(low - close)));
-
-            // Fixed calculation using the API net change
-            double netChange = netChangeApi;
-            double pctChange = (close != 0) ? (netChange / close) * 100 : 0;
-
+            // ---- Build StockData with all 12 categories ----
             StockData s = new StockData();
-            s.setInstrumentKey(entry.getKey());
-            s.setSymbol(node.path("symbol").asText());
-            s.setCurrentPrice(ltp);
-            s.setVolume(volume);
-            s.setAtr(Math.round(tr * 100.0) / 100.0);
-            s.setAdx(25.0);
-            s.setRoc(Math.round(rocValue * 100.0) / 100.0);
-            s.setTimestamp(now);
+            s.setInstrumentKey(instrumentKey);
+            s.setSymbol(symbol);
 
-            // Extended Price Data
-            s.setOpenPrice(open);
-            s.setHighPrice(high);
-            s.setLowPrice(low);
-            s.setClosePrice(close);
-            s.setChange(netChange);
+            // 1) Current Price
+            s.setCurrentPrice(ltp);
+
+            // 2) Change Price
+            s.setChange(Math.round(netChange * 100.0) / 100.0);
+
+            // 3) Change Percentage
             s.setChangePercent(Math.round(pctChange * 100.0) / 100.0);
-            s.setStatus(netChange >= 0 ? "UP" : "DOWN");
+
+            // 4) ADX, ATR, ROC
+            s.setAdx(adx);
+            s.setAtr(atr);
+            s.setRoc(roc);
+
+            // 5) High Price
+            s.setHighPrice(high);
+
+            // 6) Open Price
+            s.setOpenPrice(open);
+
+            // 7) Close Price
+            s.setClosePrice(ohlcClose > 0 ? ohlcClose : previousClose);
+
+            // 8) Last Price
+            s.setLastPrice(ltp);
+
+            // 9) Previous Close Price
+            s.setPreviousClosePrice(previousClose);
+
+            // 10) Volume
+            s.setVolume(volume);
+
+            // 11) Timestamp
+            s.setTimestamp(apiTimestamp.isEmpty() ? now : apiTimestamp);
+
+            // 12) Direction (UP / DOWN)
+            s.setDirection(direction);
+
+            // Additional fields
+            s.setLowPrice(low);
+            s.setAveragePrice(avgPrice);
+            s.setUpperCircuitLimit(upperCircuit);
+            s.setLowerCircuitLimit(lowerCircuit);
+            s.setTotalBuyQuantity(totalBuy);
+            s.setTotalSellQuantity(totalSell);
+            s.setStatus(direction); // keep status in sync with direction
 
             stocks.add(s);
         }

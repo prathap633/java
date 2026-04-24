@@ -472,8 +472,8 @@
         <div class="brand">
             <div class="live-dot" id="liveDot"></div>
             <div>
-                <h1>NSE Live Dashboard</h1>
-                <p>Upstox Market Feed · Spring Boot · WebSocket</p>
+                <h1>NSE Live Dashboard — All 12 Categories</h1>
+                <p>Upstox Market Feed · Spring Boot · PostgreSQL · WebSocket</p>
             </div>
         </div>
         <div class="header-right">
@@ -516,18 +516,20 @@
                 <thead>
                     <tr>
                         <th onclick="sortBy('symbol')">Symbol <span id="s-symbol"></span></th>
-                        <th onclick="sortBy('currentPrice')">LTP <span id="s-currentPrice"></span></th>
-                        <th onclick="sortBy('change')">Change <span id="s-change"></span></th>
-                        <th onclick="sortBy('changePercent')">Chg % <span id="s-changePercent">↓</span></th>
-                        <th onclick="sortBy('roc')">ROC % <span id="s-roc"></span></th>
-                        <th onclick="sortBy('atr')">ATR <span id="s-atr"></span></th>
+                        <th onclick="sortBy('currentPrice')">1. Current Price <span id="s-currentPrice"></span></th>
+                        <th onclick="sortBy('change')">2. Change <span id="s-change"></span></th>
+                        <th onclick="sortBy('changePercent')">3. Chg % <span id="s-changePercent">↓</span></th>
                         <th onclick="sortBy('adx')">ADX <span id="s-adx"></span></th>
-                        <th onclick="sortBy('highPrice')">High <span id="s-highPrice"></span></th>
-                        <th onclick="sortBy('lowPrice')">Low <span id="s-lowPrice"></span></th>
-                        <th onclick="sortBy('openPrice')">Open <span id="s-openPrice"></span></th>
-                        <th onclick="sortBy('closePrice')">Prev Close <span id="s-closePrice"></span></th>
-                        <th onclick="sortBy('volume')">Volume <span id="s-volume"></span></th>
-                        <th>Status</th>
+                        <th onclick="sortBy('atr')">4. ATR <span id="s-atr"></span></th>
+                        <th onclick="sortBy('roc')">ROC % <span id="s-roc"></span></th>
+                        <th onclick="sortBy('highPrice')">5. High <span id="s-highPrice"></span></th>
+                        <th onclick="sortBy('openPrice')">6. Open <span id="s-openPrice"></span></th>
+                        <th onclick="sortBy('closePrice')">7. Close <span id="s-closePrice"></span></th>
+                        <th onclick="sortBy('lastPrice')">8. Last Price <span id="s-lastPrice"></span></th>
+                        <th onclick="sortBy('previousClosePrice')">9. Prev Close <span id="s-previousClosePrice"></span></th>
+                        <th onclick="sortBy('volume')">10. Volume <span id="s-volume"></span></th>
+                        <th>11. Time</th>
+                        <th onclick="sortBy('direction')">12. Direction <span id="s-direction"></span></th>
                         <th>Trend</th>
                     </tr>
                 </thead>
@@ -658,8 +660,8 @@
         }
 
         function updateMetrics() {
-            const up = all.filter(s => s.status === 'UP').length;
-            const dn = all.filter(s => s.status === 'DOWN').length;
+            const up = all.filter(s => (s.direction || s.status) === 'UP').length;
+            const dn = all.filter(s => (s.direction || s.status) === 'DOWN').length;
             const avg = all.reduce((a, s) => a + (s.changePercent || 0), 0) / (all.length || 1);
             const adr = dn === 0 ? up.toFixed(2) : (up / dn).toFixed(2);
 
@@ -691,8 +693,8 @@
             const q = document.getElementById('searchBox').value.toLowerCase();
             let list = [...all];
             if (q) list = list.filter(s => s.symbol.toLowerCase().includes(q) || (s.instrumentKey || '').toLowerCase().includes(q));
-            if (filter === 'UP') list = list.filter(s => s.status === 'UP');
-            else if (filter === 'DN') list = list.filter(s => s.status === 'DOWN');
+            if (filter === 'UP') list = list.filter(s => (s.direction || s.status) === 'UP');
+            else if (filter === 'DN') list = list.filter(s => (s.direction || s.status) === 'DOWN');
             else if (filter === 'TOP10') list = [...list].sort((a, b) => b.changePercent - a.changePercent).slice(0, 10);
 
             list.sort((a, b) => {
@@ -732,25 +734,29 @@
 
         function renderTable(list) {
             const tb = document.getElementById('tBody');
-            if (!list.length) { tb.innerHTML = '<tr><td colspan="14" class="empty">No stocks match</td></tr>'; return; }
+            if (!list.length) { tb.innerHTML = '<tr><td colspan="16" class="empty">No stocks match</td></tr>'; return; }
             tb.innerHTML = list.map(s => {
-                const up = s.status === 'UP';
+                const dir = s.direction || s.status || 'UP';
+                const up = dir === 'UP';
                 const cls = up ? 'up' : 'dn';
                 const sgn = up ? '+' : '';
+                const dirBadge = dir === 'UP' ? 'UP' : 'DN';
                 return `<tr>
               <td class="sym-cell"><div class="sym">${s.symbol}</div><div class="ikey">${s.instrumentKey || ''}</div></td>
               <td class="num">${fmt(s.currentPrice)}</td>
               <td class="num ${cls}">${sgn}${fmt(s.change)}</td>
-              <td class="num ${cls}">${sgn}${s.changePercent.toFixed(2)}%</td>
-              <td class="num ${s.roc >= 0 ? 'up' : 'dn'}">${(s.roc || 0).toFixed(2)}%</td>
-              <td class="num" style="color:var(--accent)">${(s.atr || 0).toFixed(2)}</td>
+              <td class="num ${cls}">${sgn}${(s.changePercent || 0).toFixed(2)}%</td>
               <td class="num">${(s.adx || 0).toFixed(1)}</td>
+              <td class="num" style="color:var(--accent)">${(s.atr || 0).toFixed(2)}</td>
+              <td class="num ${(s.roc || 0) >= 0 ? 'up' : 'dn'}">${(s.roc || 0).toFixed(2)}%</td>
               <td class="num">${fmt(s.highPrice)}</td>
-              <td class="num">${fmt(s.lowPrice)}</td>
               <td class="num">${fmt(s.openPrice)}</td>
               <td class="num">${fmt(s.closePrice)}</td>
+              <td class="num">${fmt(s.lastPrice || s.currentPrice)}</td>
+              <td class="num">${fmt(s.previousClosePrice || s.closePrice)}</td>
               <td class="num">${fmtV(s.volume || 0)}</td>
-              <td><span class="badge ${s.status}">${s.status}</span></td>
+              <td class="num" style="font-size:11px;color:var(--muted)">${s.timestamp || '—'}</td>
+              <td><span class="badge ${dirBadge}">${dir === 'UP' ? '▲ UP' : '▼ DOWN'}</span></td>
               <td>${spark(s.symbol, up)}</td>
             </tr>`;
             }).join('');

@@ -20,7 +20,7 @@
 	<description>Upstox Live Stock Dashboard — 200 stocks</description>
 
 	<properties>
-		<java.version>21</java.version>
+		<java.version>17</java.version>
 	</properties>
 
 	<dependencies>
